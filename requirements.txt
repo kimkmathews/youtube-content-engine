@@ -1,0 +1,9 @@
+deepagents
+langgraph
+langchain-core
+langchain-google-genai
+langchain-text-splitters
+youtube-transcript-api
+yt-dlp
+streamlit
+python-dotenv
