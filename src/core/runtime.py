@@ -1,129 +1,67 @@
-import os
-import uuid
-from langgraph.graph import StateGraph, END
-from src.core.schema import EngineState
-
-class WorkspaceManager:
-    def __init__(self, base_dir: str):
-        self.base_dir = base_dir
-
-    def create_session_workspace(self, session_id: str) -> str:
-        workspace_path = os.path.join(self.base_dir, session_id)
-        os.makedirs(workspace_path, exist_ok=True)
-        return workspace_path
-
-    def write_file(self, session_id: str, filename: str, content: str):
-        workspace_path = os.path.join(self.base_dir, session_id)
-        file_path = os.path.join(workspace_path, filename)
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(content)
-        return file_path
+import sqlite3
+import time
+from langgraph.checkpoint.sqlite import SqliteSaver
+from deepagents import create_deep_agent
+from config.settings import Config
+from src.core.tools import (
+    get_video_metadata,
+    get_video_transcript,
+    get_available_skills,
+    run_copywriter_skill,
+    list_workspace_files,
+    read_workspace_file,
+    write_workspace_file
+)
 
 class DeepAgentsRuntime:
-    def __init__(self, workspace_manager: WorkspaceManager):
-        self.workspace_manager = workspace_manager
-        self.workflow = StateGraph(EngineState)
-        self._build_graph()
-
-    def _build_graph(self):
-        # Define nodes
-        def extract_metadata_node(state: EngineState):
-            print("\n[Node: extract_metadata] Starting extraction...")
-            from src.extractors.youtube_scraper import YouTubeScraper
-            from src.extractors.text_splitter import TextSplitterService
-            from config.settings import Config
-            scraper = YouTubeScraper()
-            splitter = TextSplitterService(chunk_size=Config.CHUNK_SIZE, chunk_overlap=Config.CHUNK_OVERLAP)
-            try:
-                state["metadata"] = scraper.get_metadata(state["youtube_url"])
-                print(f"  - Title: {state['metadata'].title}")
-                print(f"  - Channel: {state['metadata'].channel_name}")
-                state["raw_transcript"] = scraper.get_transcript(state["metadata"].video_id)
-                state["transcript_chunks"] = splitter.split_text(state["raw_transcript"])
-                print(f"  - Transcript fetched ({len(state['transcript_chunks'])} chunks)")
-            except Exception as e:
-                print(f"  [ERROR] Extraction failed: {e}")
-                state["errors"].append(f"Extraction Error: {e}")
-            return state
-
-        def plan_context_node(state: EngineState):
-            if state.get("errors"): return state
-            print("\n[Node: plan_context] Generating global cognitive plan...")
-            from src.agents.planner import GlobalContextPlanner
-            planner = GlobalContextPlanner()
-            planner_output = planner.plan(
-                state["raw_transcript"], 
-                state["user_prompt"],
-                state["preferences"].tone, 
-                state["preferences"].audience, 
-                state["preferences"].purpose
-            )
-            state["global_context"] = planner_output.global_context
-            state["planned_tasks"] = planner_output.selected_skills
-            print("  - Global context plan generated successfully.")
-            print(f"  - Selected Skills to Execute: {state['planned_tasks']}")
-            return state
-
-        def generate_content_node(state: EngineState):
-            if state.get("errors"): return state
-            print("\n[Node: generate_content] Spawning sub-agents for specific formats...")
-            from src.agents.copywriters import CopywriterAgent
-            from src.middleware.format_cleaner import FormatCleaner
-
-            cleaner = FormatCleaner()
-            state["dynamic_outputs"] = {}
-
-            for skill_name in state["planned_tasks"]:
-                print(f"  - Running {skill_name}...")
-                try:
-                    agent = CopywriterAgent(skill_name)
-                    raw_output = agent.generate(
-                        state["raw_transcript"], 
-                        state["global_context"], 
-                        state["preferences"].tone, 
-                        state["preferences"].audience, 
-                        state["preferences"].purpose
-                    )
-                    state["dynamic_outputs"][skill_name] = cleaner.clean_markdown(raw_output)
-                except Exception as e:
-                    print(f"  [ERROR] Agent {skill_name} failed: {e}")
-                    state["errors"].append(f"{skill_name} Error: {e}")
-
-            print("  - All sub-agent generation complete and formatting cleaned.")
-            return state
-
-        def save_outputs_node(state: EngineState):
-            if state.get("errors") and not state.get("dynamic_outputs"): 
-                print(f"\n[Node: save_outputs] Skipping save due to errors: {state['errors']}")
-                return state
-            print("\n[Node: save_outputs] Writing results to workspace...")
-            sid = state["session_id"]
-            
-            if "dynamic_outputs" in state:
-                for skill_name, content in state["dynamic_outputs"].items():
-                    filename = f"{skill_name}.md"
-                    self.workspace_manager.write_file(sid, filename, content)
-            return state
+    def __init__(self):
+        # Create sqlite connection for memory
+        self.conn = sqlite3.connect(Config.DB_PATH, check_same_thread=False)
+        self.checkpointer = SqliteSaver(self.conn)
         
-        self.workflow.add_node("extract_metadata", extract_metadata_node)
-        self.workflow.add_node("plan_context", plan_context_node)
-        self.workflow.add_node("generate_content", generate_content_node)
-        self.workflow.add_node("save_outputs", save_outputs_node)
-        
-        self.workflow.set_entry_point("extract_metadata")
-        self.workflow.add_edge("extract_metadata", "plan_context")
-        self.workflow.add_edge("plan_context", "generate_content")
-        self.workflow.add_edge("generate_content", "save_outputs")
-        self.workflow.add_edge("save_outputs", END)
-        
-        self.app = self.workflow.compile()
+        system_prompt = """You are the Global Context Planner and Orchestrator for the YouTube Content Engine.
+Your goal is to manage the end-to-end process of generating content from YouTube videos based on user requests.
 
-    def execute(self, state: EngineState):
-        session_id = str(uuid.uuid4())
-        state["session_id"] = session_id
-        if "errors" not in state:
-            state["errors"] = []
-        self.workspace_manager.create_session_workspace(session_id)
+Capabilities:
+1. Extract video metadata and transcript using `get_video_metadata` and `get_video_transcript`.
+2. Check available content generation skills using `get_available_skills`.
+3. Run specific subagents to generate content using `run_copywriter_skill`.
+4. Read and modify files in the workspace using `list_workspace_files`, `read_workspace_file`, and `write_workspace_file`.
+
+Workflow:
+- When a user provides a YouTube URL and instructions, first extract the metadata and transcript.
+- Formulate a cognitive plan based on the transcript and user instructions.
+- Execute the required skills (e.g., blog_writer, linkedin_specialist) passing the necessary context and tone/audience parameters.
+- Review and refine the output if requested by the user, directly modifying workspace files.
+"""
+
+        tools = [
+            get_video_metadata,
+            get_video_transcript,
+            get_available_skills,
+            run_copywriter_skill,
+            list_workspace_files,
+            read_workspace_file,
+            write_workspace_file
+        ]
         
-        final_state = self.app.invoke(state)
-        return final_state
+        self.agent = create_deep_agent(
+            model=f"google_genai:{Config.MODEL_NAME}",
+            system_prompt=system_prompt,
+            tools=tools,
+            checkpointer=self.checkpointer
+        )
+
+    def invoke(self, session_id: str, user_message: str):
+        config = {"configurable": {"thread_id": session_id}}
+        response = self.agent.invoke(
+            {"messages": [{"role": "user", "content": user_message}]},
+            config=config
+        )
+        content = response["messages"][-1].content
+        time.sleep(5)
+        
+        if isinstance(content, list):
+            text_blocks = [b["text"] for b in content if isinstance(b, dict) and b.get("type") == "text"]
+            return "\n".join(text_blocks) if text_blocks else str(content)
+        return content

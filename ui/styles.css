@@ -1,0 +1,92 @@
+/* Custom Streamlit Styling for YouTube Content Engine */
+
+/* Hide the main menu hamburger and deploy button for a cleaner look */
+#MainMenu {visibility: hidden;}
+header {visibility: hidden;}
+footer {visibility: hidden;}
+
+/* Adjust padding to make use of full space since header is hidden */
+.block-container {
+    padding-top: 2rem;
+    padding-bottom: 2rem;
+    max-width: 900px !important; /* Keep chat centered and readable */
+}
+
+/* Style the chat bubbles */
+[data-testid="stChatMessage"] {
+    background-color: #1E2128;
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+/* Style user message bubble */
+[data-testid="stChatMessage"]:has([data-testid="stIconMaterial"]:contains("person")) {
+    background-color: #2D333B;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: none;
+}
+
+/* Make sidebar more attractive */
+[data-testid="stSidebar"] {
+    background-color: #121418;
+    border-right: 1px solid #2D333B;
+}
+
+/* Customize buttons */
+.stButton > button {
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background-color: transparent;
+    transition: all 0.2s ease;
+}
+
+.stButton > button:hover {
+    border-color: #FF4B4B;
+    color: #FF4B4B;
+    background-color: rgba(255, 75, 75, 0.05);
+}
+
+/* Clean Header Typography */
+h1, h2, h3 {
+    font-family: 'Inter', 'Segoe UI', sans-serif !important;
+}
+
+.title-text {
+    font-size: 2.2rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-bottom: 0.2rem;
+    color: #FFFFFF;
+}
+
+.subtitle-text {
+    font-size: 1.1rem;
+    color: #8B949E;
+    margin-bottom: 2rem;
+    font-weight: 400;
+}
+
+/* Red accent span */
+.accent {
+    color: #FF4B4B;
+}
+
+/* Chat Input styling */
+[data-testid="stChatInput"] {
+    border-radius: 12px;
+    border: 1px solid #30363D !important;
+    background-color: #161B22;
+}
+
+[data-testid="stChatInput"]:focus-within {
+    border: 1px solid #FF4B4B !important;
+    box-shadow: 0 0 0 1px #FF4B4B;
+}
+
+/* Status spinner color */
+.stSpinner > div > div {
+    border-color: #FF4B4B transparent transparent transparent !important;
+}

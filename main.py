@@ -1,9 +1,8 @@
 import os
+import uuid
 from dotenv import load_dotenv
 from config.settings import Config
-from config.prompt_matrices import TONE_MATRICES, AUDIENCE_MATRICES, PURPOSE_MATRICES
-from src.core.schema import EngineState, UserPreferences
-from src.core.runtime import WorkspaceManager, DeepAgentsRuntime
+from src.core.runtime import DeepAgentsRuntime
 
 def main():
     load_dotenv()
@@ -13,31 +12,32 @@ def main():
         return
 
     # Initialize runtime
-    workspace_manager = WorkspaceManager(Config.WORKSPACE_DIR)
-    runtime = DeepAgentsRuntime(workspace_manager)
+    runtime = DeepAgentsRuntime()
     
-    # Sample state
-    state = EngineState(
-        youtube_url="https://www.youtube.com/watch?v=ldqOnljDINc&t=2s", # Replace with actual URL for testing
-        session_id="",
-        user_prompt="I want a LinkedIn post and some detailed lecture notes.",
-        preferences=UserPreferences(
-            tone=TONE_MATRICES["casual"],
-            audience=AUDIENCE_MATRICES["beginners"],
-            purpose=PURPOSE_MATRICES["educational"]
-        ),
-        metadata=None,
-        raw_transcript="",
-        transcript_chunks=[],
-        global_context="",
-        planned_tasks=[],
-        dynamic_outputs={},
-        errors=[]
-    )
+    print("Welcome to the YouTube Content Engine (Multi-Turn Chat)")
+    print("Type 'exit' or 'quit' to stop.")
     
-    print("Executing pipeline...")
-    final_state = runtime.execute(state)
-    print(f"Execution complete. Output saved to: {os.path.join(Config.WORKSPACE_DIR, final_state.get('session_id', ''))}")
-    
+    session_id = input("Enter a Session ID (or press Enter to create a new one): ").strip()
+    if not session_id:
+        session_id = str(uuid.uuid4())
+    print(f"Active Session ID: {session_id}\n")
+
+    while True:
+        try:
+            user_input = input("\nYou: ")
+            if user_input.lower() in ['exit', 'quit']:
+                break
+            if not user_input.strip():
+                continue
+            
+            print("\nAgent is thinking...")
+            response = runtime.invoke(session_id, user_input)
+            print(f"\nAgent: {response}")
+            
+        except KeyboardInterrupt:
+            break
+        except Exception as e:
+            print(f"\n[Error]: {e}")
+
 if __name__ == "__main__":
     main()

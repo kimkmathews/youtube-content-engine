@@ -10,6 +10,12 @@ env/
 output/
 workspace/
 
+# Runtime Database State
+state.db
+state.db-shm
+state.db-wal
+*.db
+
 # Python caching & artifacts
 __pycache__/
 *.py[cod]

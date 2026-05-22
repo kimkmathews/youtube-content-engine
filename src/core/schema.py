@@ -13,23 +13,3 @@ class UserPreferences(BaseModel):
     audience: str = "beginners"
     purpose: str = "educational"
 
-class EngineState(TypedDict):
-    youtube_url: str
-    session_id: str
-    preferences: UserPreferences
-    
-    # Extraction Layer
-    metadata: Optional[VideoMetadata]
-    raw_transcript: str
-    transcript_chunks: List[str]
-    
-    # Planning Layer
-    global_context: str
-    
-    # Dynamic Orchestration
-    user_prompt: str
-    planned_tasks: List[str]
-    dynamic_outputs: Dict[str, str]
-    
-    # System
-    errors: List[str]

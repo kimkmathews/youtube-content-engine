@@ -7,3 +7,4 @@ youtube-transcript-api
 yt-dlp
 streamlit
 python-dotenv
+langgraph-checkpoint-sqlite
