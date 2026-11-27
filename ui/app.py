@@ -1,3 +1,4 @@
+import glob
 import os
 import sys
 import uuid
@@ -7,6 +8,7 @@ from dotenv import load_dotenv
 # Ensure the root directory is in the path to import src modules
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+from config.settings import Config
 from src.core.runtime import DeepAgentsRuntime
 
 # Load environment variables
@@ -29,6 +31,12 @@ def load_css():
 
 load_css()
 
+# One runtime (compiled graph + sqlite connections) per server process, shared by all tabs.
+@st.cache_resource
+def get_runtime() -> DeepAgentsRuntime:
+    return DeepAgentsRuntime()
+
+
 # Initialization logic
 def init_session():
     if "session_id" not in st.session_state:
@@ -40,12 +48,11 @@ def init_session():
             {"role": "assistant", "content": "👋 Welcome to the YouTube Content Engine! I can autonomously extract, summarize, and rewrite YouTube videos into blogs, social media posts, and chapters. \n\nTo get started, provide a YouTube URL and your instructions."}
         ]
         
-    if "runtime" not in st.session_state:
-        try:
-            st.session_state.runtime = DeepAgentsRuntime()
-        except Exception as e:
-            st.error(f"Failed to initialize AI Engine: {e}")
-            st.stop()
+    try:
+        st.session_state.runtime = get_runtime()
+    except Exception as e:
+        st.error(f"Failed to initialize AI Engine: {e}")
+        st.stop()
 
 init_session()
 
@@ -65,13 +72,22 @@ with st.sidebar:
 
     st.markdown("---")
     st.markdown("### System Status")
-    if not os.getenv("GEMINI_API_KEY"):
-        st.error("🔴 GEMINI_API_KEY not found in .env")
+    if not Config.OPENROUTER_API_KEY:
+        st.error("🔴 OPENROUTER_API_KEY not found in .env")
     else:
-        st.success("🟢 API Key Loaded")
-        
-    st.markdown("### Workspaces")
-    st.info("Files generated during this session are stored locally in the `/workspace` folder to optimize token usage.")
+        st.success(f"🟢 OpenRouter key loaded · `{Config.ORCHESTRATOR_MODEL}`")
+
+    st.markdown("### Generated files")
+    session_dir = os.path.join(Config.WORKSPACE_ROOT, st.session_state.session_id)
+    files = sorted(glob.glob(os.path.join(session_dir, "*", "*.md")))
+    if not files:
+        st.caption("Nothing generated in this session yet.")
+    for path in files:
+        with open(path, encoding="utf-8") as f:
+            st.download_button(
+                os.path.basename(path), f.read(), file_name=os.path.basename(path),
+                mime="text/markdown", use_container_width=True, key=path,
+            )
 
 # Main Chat Interface
 st.markdown('<div class="title-text">YouTube <span class="accent">Content Engine</span></div>', unsafe_allow_html=True)
@@ -93,18 +109,21 @@ if prompt := st.chat_input("Enter your request here... (e.g. 'Analyze this URL a
 
     # Display assistant response in chat message container
     with st.chat_message("assistant"):
-        with st.spinner("Agent is thinking..."):
-            try:
-                # Invoke the runtime with the user's prompt
-                response = st.session_state.runtime.invoke(
-                    st.session_state.session_id, 
-                    prompt
-                )
-                st.markdown(response)
-                # Add assistant response to chat history
-                st.session_state.messages.append({"role": "assistant", "content": response})
-            except Exception as e:
-                error_msg = f"**Error executing agent pipeline:**\n\n```python\n{str(e)}\n```"
-                st.error("Pipeline Failure")
-                st.markdown(error_msg)
-                st.session_state.messages.append({"role": "assistant", "content": error_msg})
+        status = st.status("Agent is thinking...", expanded=False)
+        try:
+            response = ""
+            for kind, text in st.session_state.runtime.stream(st.session_state.session_id, prompt):
+                if kind == "progress":
+                    status.update(label=text)
+                    status.write(text)
+                elif kind == "tool":
+                    status.write(f"Calling `{text}`")
+                else:
+                    response = text
+            status.update(label="Done", state="complete")
+            st.session_state.messages.append({"role": "assistant", "content": response})
+        except Exception as e:
+            status.update(label="Failed", state="error")
+            error_msg = f"**Error executing agent pipeline:**\n\n```python\n{str(e)}\n```"
+            st.session_state.messages.append({"role": "assistant", "content": error_msg})
+    st.rerun()  # re-render history and refresh the sidebar's file list
